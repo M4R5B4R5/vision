@@ -1,7 +1,7 @@
 use std::{error::Error, fs::{self, File}, io::{stdout, BufRead, BufReader, Write}, str::FromStr};
 
 pub struct Buffer {
-    pub path: String,
+    pub path: Option<String>,
     data: Vec<Vec<char>>,
 }
 
@@ -18,13 +18,22 @@ impl FromStr for Buffer {
             buffer_data.push(line);
         }
 
-        Ok(Buffer::new(path.to_string(), buffer_data))
+        // Start the buffer off with a single empty line if the opened file has no lines
+        if buffer_data.is_empty() {
+            buffer_data.push(vec![]);
+        }
+
+        Ok(Buffer::from(path.to_string(), buffer_data))
     }
 }
 
 impl Buffer {
-    pub fn new(path: String, data: Vec<Vec<char>>) -> Self {
-        Self { path, data }
+    pub fn new(path: Option<String>) -> Self {
+        Self { path, data: vec![vec![]]}
+    }
+
+    fn from(path: String, data: Vec<Vec<char>>) -> Self {
+        Self { path: Some(path), data }
     }
 
     pub fn length(&self) -> usize {
@@ -45,10 +54,14 @@ impl Buffer {
         bytes
     }
 
-    pub fn write(&self) -> Result<(), std::io::Error>{
-        fs::write(&self.path, self.bytes())
+    pub fn write(&self) -> Result<(), std::io::Error> {
+        let path = self.path.as_ref().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Other, "Path is empty")
+        })?;
+    
+        fs::write(path, self.bytes())
     }
-
+    
     pub fn print(&self) {
         for (i, line) in self.data.iter().enumerate() {
             for char in line {
@@ -68,6 +81,24 @@ impl Buffer {
         self.data.get(line)
     }
 
+    pub fn set_line(&mut self, line: usize, new_line: Vec<char>) {
+        if let Some(old_line) = self.data.get_mut(line) {
+            *old_line = new_line;
+        }
+    }
+
+    pub fn insert_line(&mut self, row: usize, line: Vec<char>) {
+        if row < self.data.len() {
+            self.data.insert(row, line);
+        } else {
+            self.data.push(line);
+        }
+    }
+
+    pub fn get_line_mut(&mut self, line: usize) -> Option<&mut Vec<char>>{
+        self.data.get_mut(line)
+    }
+
     pub fn get_char(&self, line: usize, col: usize) -> Option<&char> {
         self.data.get(line).and_then(|l| l.get(col))
     }
@@ -80,8 +111,8 @@ impl Buffer {
         }
     }
 
-    pub fn insert_char(&mut self, line: usize, col: usize, c: char) {
-        if let Some(line) = self.data.get_mut(line) {
+    pub fn insert_char(&mut self, row: usize, col: usize, c: char) {
+        if let Some(line) = self.data.get_mut(row) {
             if col > line.len() {
                 line.push(c);
             } else {

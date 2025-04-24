@@ -1,6 +1,6 @@
-use std::{cmp, io::{stdout, Write}, process::exit};
+use std::{cmp::{self, max}, io::{stdout, Write}, path::{self, Path}, process::exit};
 
-use crossterm::{cursor::{position, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp, RestorePosition, SavePosition, SetCursorStyle, Show}, event::{read, KeyCode}, execute, terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType}};
+use crossterm::{cursor::{position, Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp, RestorePosition, SavePosition, SetCursorStyle, Show}, event::{read, KeyCode, KeyEvent}, execute, style::Print, terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType}};
 
 use crate::Buffer;
 use cmp::min;
@@ -16,8 +16,7 @@ impl Mode {
     fn print(&self) {
         match self {
             Self::Insert    => print!("--INSERT MODE--"),
-            Self::Command   => print!("--COMMAND MODE--"),
-            Self::Normal    => {},
+            _ => {}
         }
         stdout().flush().unwrap();
     }
@@ -56,10 +55,37 @@ impl Editor {
         Self { file, mode: Mode::Normal, prev_cursor_col: None }
     }
 
-    pub fn render(&self) {
-        execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).unwrap();
+    pub fn cursor_home(&self) {
+        let row = match self.file.length() {
+            0 => 0,
+            _ => self.file.length() - 1,
+        };
+            
+        if let Some(last_line) = self.file.get_line(row) {
+            let col = last_line.len();
+            execute!(stdout(), MoveTo(col as u16, row as u16)).unwrap();
+        }
+    }
+
+    pub fn render(&mut self) {
+        let (col, row) = position().unwrap();
+
+        disable_raw_mode().unwrap();
+        execute!(stdout(), Hide, Clear(ClearType::All), MoveTo(0, 0)).unwrap();
+        print!("\x1b[3J");
         self.file.print();
-        self.mode.print();
+
+        // Blank lines inbetween
+        if size().unwrap().1 > 2 {
+            while position().unwrap().1 != size().unwrap().1 - 3 {
+                execute!(stdout(), MoveToNextLine(1)).unwrap();
+                print!("~");
+            }
+        }
+        
+        self.set_mode(self.mode);
+        execute!(stdout(), MoveTo(col, row), Show).unwrap();
+        enable_raw_mode().unwrap();
     }
 
     pub fn set_mode(&mut self, mode: Mode) {
@@ -184,9 +210,10 @@ impl Editor {
                     _ => {}
                 }
 
-                // Reposition the cursor if it came out of another mode
-                if key_event.code != KeyCode::Char('h') && key_event.code != KeyCode::Char('k') && key_event.code != KeyCode::Char('l') && key_event.code != KeyCode::Char('j') {
-                    self.set_mode(Mode::Normal);
+                self.set_mode(Mode::Normal);
+                
+                // Reposition the cursor if it came out of command mode
+                if key_event.code == KeyCode::Char(':') {
                     execute!(stdout(), MoveTo(normal_pos.0, normal_pos.1)).unwrap();
                 }
                 enable_raw_mode().unwrap();
@@ -198,7 +225,7 @@ impl Editor {
         self.set_mode(Mode::Command);
         disable_raw_mode().unwrap();
 
-        execute!(stdout(), MoveTo(0, self.file.length() as u16 + 1), SavePosition).unwrap();
+        execute!(stdout(), MoveTo(0, size().unwrap().1 - 2), Clear(ClearType::CurrentLine), SavePosition).unwrap();
         print!(":");
         execute!(stdout(), RestorePosition, MoveRight(1)).unwrap();
 
@@ -209,13 +236,87 @@ impl Editor {
             execute!(stdout(), Clear(ClearType::Purge), Clear(ClearType::All), MoveTo(0, 0)).unwrap();
             print!("\x1b[3J");
             exit(0);
+        } else if command.trim() == "s" {
+            if let None = self.file.path {
+                execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0)).unwrap();
+                println!("Please enter a PATH to save file");
+                print!("PATH: ");
+
+                let mut path_str = String::new();
+                std::io::stdin().read_line(&mut path_str).expect("Failed to read file name");
+                self.file.path = Some(path_str);
+            }
+            self.file.write().expect("Failed to save file");
         }
 
         execute!(stdout(), MoveToPreviousLine(1), Clear(ClearType::CurrentLine)).unwrap();
     }
+
+    pub fn process_backspace(&mut self, col: u16, row: u16) {
+        if let Some(line) = self.file.get_line(row as usize) {
+            if col == 0 {
+                if row == 0 {
+                    return;
+                }
+
+                // Join the previous line with the next line
+                let mut prev_line = self.file.get_line(row as usize - 1).expect("Failed to get prev_line").clone();
+                let prev_line_len = prev_line.len();
+                prev_line.extend(line);
+                self.file.set_line(row as usize - 1, prev_line);
+
+                execute!(stdout(), MoveUp(1)).unwrap();
+
+                // Move the cursor to end of line if previous line isn't empty
+                if prev_line_len > 0 {
+                    execute!(stdout(), MoveRight(prev_line_len as u16)).unwrap();
+                }
+
+                // Delete current line and move cursor up
+                self.file.delete_line(row as usize);
+            } else {
+                self.file.delete_char(row as usize, (col - 1) as usize);
+                execute!(stdout(), MoveLeft(1)).unwrap();
+            }
+        }
+    }
+
+    pub fn process_enter(&mut self, col: u16, row: u16) {
+        if let Some(line) = self.file.get_line(row as usize) {
+            if col < line.len() as u16 {
+                let first_half = (&line[0..col as usize]).iter().copied().collect::<Vec<char>>();
+                let second_half = (&line[col as usize..line.len()]).iter().copied().collect::<Vec<char>>();
+
+                self.file.set_line(row as usize, first_half);
+                self.file.insert_line(row as usize + 1, second_half);
+                
+                execute!(stdout(), MoveToNextLine(1)).unwrap();
+            } else {
+                self.file.insert_line(row as usize + 1, Vec::new());
+                self.move_cursor_down((col, row));
+            }
+        }
+    }
+
+    pub fn process_char(&mut self, col: u16, row: u16, c: char) {
+        self.file.insert_char(row as usize, col as usize, c);
+        execute!(stdout(), MoveRight(1)).unwrap();
+    }
     
     pub fn insert(&mut self) {
         self.set_mode(Mode::Insert);
-        disable_raw_mode().unwrap();
+        while let Ok(event) = read() {
+            if let Some(key_event) = event.as_key_event() {
+                let (col, row) = position().unwrap();
+                match key_event.code {
+                    KeyCode::Esc => break,
+                    KeyCode::Enter => self.process_enter(col, row),
+                    KeyCode::Backspace => self.process_backspace(col, row),
+                    KeyCode::Char(c) => self.process_char(col, row, c),
+                    _ => {}
+                }
+                self.render();
+            }
+        }
     }
 }
