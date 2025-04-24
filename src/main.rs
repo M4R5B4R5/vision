@@ -1,4 +1,4 @@
-use std::{error::Error, fs::File, io::{stdout, BufRead, BufReader}};
+use std::{error::Error, fs::File, io::{stdout, BufRead, BufReader}, sync::{Arc, Mutex}, thread};
 
 use clap::Parser;
 
@@ -11,7 +11,7 @@ struct Args {
 }
 
 fn open_existing(path: String) {
-    let mut buffer = path.parse::<Buffer>().expect("Could not open file. Path is invalid.");
+    let buffer = path.parse::<Buffer>().expect("Could not open file. Path is invalid.");
     let mut editor = Editor::new(buffer);
 
     editor.render();
