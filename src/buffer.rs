@@ -1,8 +1,13 @@
 use std::{error::Error, fs::{self, File}, io::{stdout, BufRead, BufReader, Write}, str::FromStr};
 
+use crossterm::terminal::size;
+
 pub struct Buffer {
     pub path: Option<String>,
     data: Vec<Vec<char>>,
+
+    start: usize,
+    size: usize,
 }
 
 impl FromStr for Buffer {
@@ -29,11 +34,11 @@ impl FromStr for Buffer {
 
 impl Buffer {
     pub fn new(path: Option<String>) -> Self {
-        Self { path, data: vec![vec![]]}
+        Self {start: 0, size: size().unwrap().1 as usize, path, data: vec![vec![]]}
     }
 
     fn from(path: String, data: Vec<Vec<char>>) -> Self {
-        Self { path: Some(path), data }
+        Self {start: 0, size: size().unwrap().1 as usize, path: Some(path), data }
     }
 
     pub fn length(&self) -> usize {
@@ -63,6 +68,17 @@ impl Buffer {
     }
     
     pub fn print(&self) {
+        // for i in self.start..self.start + self.size - 1 {
+        //     if let Some(line) = self.data.get(i) {
+        //         for char in line {
+        //             print!("{}", char);
+        //         }
+        //     }
+
+        //     if i != self.data.len() - 1 {
+        //         println!();
+        //     }
+        // }
         for (i, line) in self.data.iter().enumerate() {
             for char in line {
                 print!("{}", char);

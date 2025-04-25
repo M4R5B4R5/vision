@@ -1,6 +1,6 @@
 use std::{cmp::{self, max}, io::{stdout, Write}, path::{self, Path}, process::exit};
 
-use crossterm::{cursor::{position, Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp, RestorePosition, SavePosition, SetCursorStyle, Show}, event::{read, KeyCode, KeyEvent}, execute, style::Print, terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType}};
+use crossterm::{cursor::{position, Hide, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp, RestorePosition, SavePosition, SetCursorStyle, Show}, event::{read, Event, KeyCode, KeyEvent}, execute, style::Print, terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, SetSize}};
 
 use crate::Buffer;
 use cmp::min;
@@ -75,13 +75,13 @@ impl Editor {
         print!("\x1b[3J");
         self.file.print();
 
-        // Blank lines inbetween
-        if size().unwrap().1 > 2 {
-            while position().unwrap().1 != size().unwrap().1 - 3 {
-                execute!(stdout(), MoveToNextLine(1)).unwrap();
-                print!("~");
-            }
-        }
+        // // Blank lines inbetween
+        // if size().unwrap().1 > 2 {
+        //     while position().unwrap().1 != size().unwrap().1 - 3 {
+        //         execute!(stdout(), MoveToNextLine(1)).unwrap();
+        //         print!("~");
+        //     }
+        // }
         
         self.set_mode(self.mode);
         execute!(stdout(), MoveTo(col, row), Show).unwrap();
@@ -192,31 +192,40 @@ impl Editor {
     pub fn normal(&mut self) {
         enable_raw_mode().unwrap();
         while let Ok(event) = read() {
-            if let Some(key_event) = event.as_key_event() {
-                let normal_pos = position().unwrap();
+            match event {
+                Event::Key(key_event) => {
+                    let normal_pos = position().unwrap();
+                    match key_event.code {
+                        // Other mode listeners
+                        KeyCode::Char(':') => self.command(),
+                        KeyCode::Char('i') => self.insert(),
+    
+                        // Cursor movement
+                        KeyCode::Char('h') => {self.move_cursor(Direction::Left);},
+                        KeyCode::Char('k') => {self.move_cursor(Direction::Up);},
+                        KeyCode::Char('l') => {self.move_cursor(Direction::Right);},
+                        KeyCode::Char('j') => {self.move_cursor(Direction::Down);},
+    
+                        // Shortcuts comming soon                    
+                        _ => {}
+                    }
 
-                match key_event.code {
-                    // Other mode listeners
-                    KeyCode::Char(':') => self.command(),
-                    KeyCode::Char('i') => self.insert(),
-
-                    // Cursor movement
-                    KeyCode::Char('h') => {self.move_cursor(Direction::Left);},
-                    KeyCode::Char('k') => {self.move_cursor(Direction::Up);},
-                    KeyCode::Char('l') => {self.move_cursor(Direction::Right);},
-                    KeyCode::Char('j') => {self.move_cursor(Direction::Down);},
-
-                    // Shortcuts comming soon                    
-                    _ => {}
-                }
-
-                self.set_mode(Mode::Normal);
+                    self.set_mode(Mode::Normal);
                 
-                // Reposition the cursor if it came out of command mode
-                if key_event.code == KeyCode::Char(':') {
-                    execute!(stdout(), MoveTo(normal_pos.0, normal_pos.1)).unwrap();
-                }
-                enable_raw_mode().unwrap();
+                    // Reposition the cursor if it came out of command mode
+                    if key_event.code == KeyCode::Char(':') {
+                        execute!(stdout(), MoveTo(normal_pos.0, normal_pos.1)).unwrap();
+                    }
+
+                    enable_raw_mode().unwrap();
+                },
+                Event::Resize(col, row) => {
+                    // print!("\x1b[3J");
+                    // stdout().flush().unwrap();
+
+                    self.render();
+                },
+                _ => {}
             }
         }
     }
