@@ -1,4 +1,4 @@
-use std::io::stdout;
+use std::{collections::HashMap, io::stdout};
 use crossterm::{cursor::{position, MoveTo}, execute, style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor}, terminal::{size, Clear, ClearType}};
 
 #[macro_export]
@@ -35,4 +35,23 @@ pub fn clear_line() {
 
 pub fn window_size() -> u16 {
     size().unwrap().1 - 2
+}
+
+pub fn closing_brace(opening: char) -> Option<char> {
+    let mut braces: HashMap<char, char> = HashMap::new();
+    braces.insert('{', '}');
+    braces.insert('[', ']');
+    braces.insert('(', ')');
+    
+    braces.get(&opening).copied()
+}
+
+pub fn braces(b1: char, b2: char) -> bool {
+    let mut join = String::from(b1);
+    join.push(b2);
+
+    match join.as_str() {
+        "{}" | "[]" | "()" => true,
+        _ => false,
+    }
 }

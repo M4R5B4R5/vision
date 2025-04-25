@@ -167,9 +167,9 @@ impl Buffer {
             if col > line.len() {
                 line.push(c);
             } else {
-                self.modified = true;
+                line.insert(col, c);
             }
-            line.insert(col, c);
+            self.modified = true;
         }
     }
 
