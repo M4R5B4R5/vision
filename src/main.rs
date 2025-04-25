@@ -1,5 +1,5 @@
-use std::path::Path;
 use clap::Parser;
+use std::path::Path;
 use vision::{Buffer, Editor};
 
 #[derive(Parser)]
@@ -12,10 +12,12 @@ fn run(args: Args) {
         Some(path_str) => {
             let path = Path::new(&path_str);
             match path.is_file() {
-                true => path_str.parse::<Buffer>().expect("Could not open file. Path is invalid."),
+                true => path_str
+                    .parse::<Buffer>()
+                    .expect("Could not open file. Path is invalid."),
                 false => Buffer::new(Some(path_str)),
             }
-        },
+        }
         None => Buffer::new(None),
     };
 
