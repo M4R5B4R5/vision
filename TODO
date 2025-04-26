@@ -1,2 +1,24 @@
-- Need to fix terminal resizing with buffer
-    Idea: Load part of the buffer only. when cursor goes outside terminal size(), show the next slice of the buffer
+test
+
+e: t, e, s, t
+u:
+
+tes
+
+e: t, e, s
+u: t
+
+te
+
+e: t, e
+u: t, s
+
+tes
+
+e: t, e, s
+u: t
+
+test
+
+e: t, e, s, t
+u: 

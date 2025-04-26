@@ -1,8 +1,8 @@
 use std::{io::{stdout, Write}, thread, time::Duration};
 
-use crossterm::{cursor::{position, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp}, event::{read, Event, KeyCode}, execute, style::Color, terminal::{enable_raw_mode, Clear, ClearType}};
+use crossterm::{cursor::{position, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp}, event::{read, Event, KeyCode, KeyModifiers}, execute, style::Color, terminal::{enable_raw_mode, Clear, ClearType}};
 
-use crate::{print_bg, print_fg, utils, Command, Direction, Editor};
+use crate::{print_bg, print_fg, utils, Action, Command, Direction, Editor};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -32,7 +32,7 @@ pub struct CommandMode;
 
 impl ModeBehaviour for NormalMode {
     fn print(&self) {
-        print_fg!(Color::Green, "-=NORMAL MODE=-");
+        print_fg!(Color::Green, "--NORMAL MODE--");
     }
 
     fn listen(&mut self, editor: &mut Editor) {
@@ -61,6 +61,17 @@ impl ModeBehaviour for NormalMode {
                         }
 
                         // Shortcuts comming soon
+                        KeyCode::Char('u') => {
+                            editor.file.undo();
+                            editor.render();
+                        },
+
+                        KeyCode::Char('r') => {
+                            if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                                editor.file.redo();
+                                editor.render();
+                            }
+                        },
                         _ => {}
                     }
 
@@ -84,7 +95,7 @@ impl ModeBehaviour for NormalMode {
 
 impl ModeBehaviour for InsertMode {
     fn print(&self) {
-        print_fg!(Color::Yellow, "-=INSERT MODE=-");
+        print_fg!(Color::Yellow, "--INSERT MODE--");
     }
 
     fn listen(&mut self, editor: &mut Editor) {
@@ -134,7 +145,7 @@ impl InsertMode {
         }
         
         // Replace the current line with everything left of the cursor
-        editor.file.set_line(row as usize, first_half.clone());
+        editor.file.set_line(row as usize, first_half.clone(), Action::Do);
         execute!(stdout(), MoveToNextLine(1)).unwrap();
         row += 1;
         
@@ -146,7 +157,7 @@ impl InsertMode {
             if utils::braces(left, right) {
                 let mut new_line = indentation.clone();
                 new_line.extend(vec![' ', ' ', ' ', ' ']);
-                editor.file.insert_line(row as usize, new_line);
+                editor.file.insert_line(row as usize, new_line, Action::Do);
                 execute!(stdout(), MoveRight(4)).unwrap();
                 row += 1;
             }
@@ -156,7 +167,7 @@ impl InsertMode {
         second_half.splice(0..0, indentation.clone());
 
         // Insert second half
-        editor.file.insert_line(row as usize, second_half);
+        editor.file.insert_line(row as usize, second_half, Action::Do);
 
         if indentation.len() > 0 {
             execute!(stdout(), MoveRight(indentation.len() as u16)).unwrap();
@@ -177,11 +188,11 @@ impl InsertMode {
 
             if let (Some(left), Some(right)) = (left_char, right_char) {
                 if utils::pair(left, right) {
-                    editor.file.delete_char(row as usize, col as usize);
+                    editor.file.delete_char(row as usize, col as usize, Action::Do);
                 }
             }
 
-            editor.file.delete_char(row as usize, (col - 1) as usize);
+            editor.file.delete_char(row as usize, (col - 1) as usize, Action::Do);
             execute!(stdout(), MoveLeft(1)).unwrap();
             return;
         }
@@ -194,7 +205,7 @@ impl InsertMode {
             .clone();
         let prev_line_len = prev_line.len();
         prev_line.extend(line);
-        editor.file.set_line(row as usize - 1, prev_line);
+        editor.file.set_line(row as usize - 1, prev_line, Action::Do);
 
         execute!(stdout(), MoveUp(1)).unwrap();
 
@@ -204,7 +215,7 @@ impl InsertMode {
         }
 
         // Delete current line and move cursor up
-        editor.file.delete_line(row as usize);
+        editor.file.delete_line(row as usize, Action::Do);
     }
 
     fn process_char(&mut self, editor: &mut Editor, mut col: u16, row: u16, c: char) {
@@ -223,13 +234,13 @@ impl InsertMode {
         }
 
         // Otherwise, insert whatever the user types
-        editor.file.insert_char(row as usize, col as usize, c);
+        editor.file.insert_char(row as usize, col as usize, c, Action::Do);
         col += 1;
         execute!(stdout(), MoveRight(1)).unwrap();
 
         // If inserted char is a literal that is part of a pair, insert it's corresponding partner also
         if let Some(closing) = utils::closeable(c) {
-            editor.file.insert_char(row as usize, col as usize, closing);
+            editor.file.insert_char(row as usize, col as usize, closing, Action::Do);
             return;
         }
     }
@@ -237,7 +248,7 @@ impl InsertMode {
 
 impl ModeBehaviour for CommandMode {
     fn print(&self) {
-        print_fg!(Color::Magenta, "-=COMMAND MODE=-")
+        print_fg!(Color::Magenta, "--COMMAND MODE--")
     }
 
     fn listen(&mut self, editor: &mut Editor) {
