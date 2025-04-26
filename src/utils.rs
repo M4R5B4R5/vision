@@ -37,21 +37,35 @@ pub fn window_size() -> u16 {
     size().unwrap().1 - 2
 }
 
-pub fn closing_brace(opening: char) -> Option<char> {
-    let mut braces: HashMap<char, char> = HashMap::new();
-    braces.insert('{', '}');
-    braces.insert('[', ']');
-    braces.insert('(', ')');
-    
-    braces.get(&opening).copied()
+pub fn closeable(c1: char) -> Option<char> {
+    match c1 {
+        '{' => Some('}'),
+        '(' => Some(')'),
+        '[' => Some(']'),
+        '\''=> Some('\''),
+        '"' => Some('"'),
+        '`' => Some('`'),
+        _ => None
+    }
 }
 
-pub fn braces(b1: char, b2: char) -> bool {
-    let mut join = String::from(b1);
-    join.push(b2);
-
-    match join.as_str() {
-        "{}" | "[]" | "()" => true,
-        _ => false,
+pub fn openeable(c1: char) -> Option<char> {
+    match c1 {
+        '}' => Some('{'),
+        ')' => Some('('),
+        ']' => Some('['),
+        '\''=> Some('\''),
+        '"' => Some('"'),
+        '`' => Some('`'),
+        _ => None
     }
+}
+
+pub fn braces(opening: char, closing: char) -> bool {
+    matches!((opening, closing), ('{', '}') | ('[', ']') | ('(', ')'))
+}
+
+
+pub fn pair(c1: char, c2: char) -> bool {
+    braces(c1, c2) || matches!((c1, c2), ('\'', '\'') | ('"', '"') | ('`', '`'))
 }

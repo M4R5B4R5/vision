@@ -1,4 +1,4 @@
-use std::io::{stdout, Write};
+use std::{io::{stdout, Write}, thread, time::Duration};
 
 use crossterm::{cursor::{position, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp}, event::{read, Event, KeyCode}, execute, style::Color, terminal::{enable_raw_mode, Clear, ClearType}};
 
@@ -117,85 +117,120 @@ impl InsertMode {
         }
     }
 
-    fn process_enter(&mut self, editor: &mut Editor, col: u16, row: u16) {
-        if let Some(line) = editor.file.get_line(row as usize) {
-            if col < line.len() as u16 {
-                let first_half = (&line[0..col as usize])
-                    .iter()
-                    .copied()
-                    .collect::<Vec<char>>();
+    fn process_enter(&mut self, editor: &mut Editor, col: u16, mut row: u16) {
+        let line = editor.file.get_line(row as usize).expect("Failed to get line");
 
-                let second_half = (&line[col as usize..line.len()])
-                    .iter()
-                    .copied()
-                    .collect::<Vec<char>>();
+        let first_half = (&line[0..col as usize]).to_vec();
+        let mut second_half = (&line[col as usize..line.len()]).to_vec();
 
-                    // Check if the cursor is between a pair of brackets
-                    let left_char = first_half.last().copied();
-                    let right_char = second_half.first().copied();
-
-                    editor.file.set_line(row as usize, first_half);
-
-                    if let (Some(left), Some(right)) = (left_char, right_char) {
-                        if utils::braces(left, right) {
-                            editor.file.insert_line(row as usize + 1, vec![]);
-                            editor.file.insert_line(row as usize + 2, second_half);
-                            execute!(stdout(), MoveToNextLine(1)).unwrap();
-                            self.process_tab(editor, col, row + 1);
-                        } else {
-                            editor.file.insert_line(row as usize + 1, second_half);
-                            execute!(stdout(), MoveToNextLine(1)).unwrap();
-                        }
-                    } else {
-                        editor.file.insert_line(row as usize + 1, second_half);
-                        execute!(stdout(), MoveToNextLine(1)).unwrap();
-                    }
+        // Indentation from previous line
+        let mut indentation = Vec::new();
+        for char in &first_half {
+            if *char == ' ' {
+                indentation.push(' ');
             } else {
-                editor.file.insert_line(row as usize + 1, Vec::new());
-                editor.move_cursor_down((col, row));
+                break;
             }
+        }
+        
+        // Replace the current line with everything left of the cursor
+        editor.file.set_line(row as usize, first_half.clone());
+        execute!(stdout(), MoveToNextLine(1)).unwrap();
+        row += 1;
+        
+        // // Insert another new line if user presses enter betweeen braces
+        let left_char = first_half.last().copied();
+        let right_char = second_half.first().copied();
+        
+        if let (Some(left), Some(right)) = (left_char, right_char) {
+            if utils::braces(left, right) {
+                let mut new_line = indentation.clone();
+                new_line.extend(vec![' ', ' ', ' ', ' ']);
+                editor.file.insert_line(row as usize, new_line);
+                execute!(stdout(), MoveRight(4)).unwrap();
+                row += 1;
+            }
+        }
+
+        // Indent the second half
+        second_half.splice(0..0, indentation.clone());
+
+        // Insert second half
+        editor.file.insert_line(row as usize, second_half);
+
+        if indentation.len() > 0 {
+            execute!(stdout(), MoveRight(indentation.len() as u16)).unwrap();
         }
     }
 
     fn process_backspace(&mut self, editor: &mut Editor, col: u16, row: u16) {
-        if let Some(line) = editor.file.get_line(row as usize) {
-            if col == 0 {
-                if row == 0 {
-                    return;
-                }
-
-                // Join the previous line with the next line
-                let mut prev_line = editor
-                    .file
-                    .get_line(row as usize - 1)
-                    .expect("Failed to get prev_line")
-                    .clone();
-                let prev_line_len = prev_line.len();
-                prev_line.extend(line);
-                editor.file.set_line(row as usize - 1, prev_line);
-
-                execute!(stdout(), MoveUp(1)).unwrap();
-
-                // Move the cursor to end of line if previous line isn't empty
-                if prev_line_len > 0 {
-                    execute!(stdout(), MoveRight(prev_line_len as u16)).unwrap();
-                }
-
-                // Delete current line and move cursor up
-                editor.file.delete_line(row as usize);
-            } else {
-                editor.file.delete_char(row as usize, (col - 1) as usize);
-                execute!(stdout(), MoveLeft(1)).unwrap();
-            }
+        // Don't do anything if user tries to delete the first column of the first row
+        if row == 0 && col == 0 {
+            return;
         }
+
+        // Delete a character if the cursor is NOT at the start of the line
+        let line = editor.file.get_line(row as usize).expect("Buffer has no starting line");
+        if col != 0 {
+            let left_char = line.get(col as usize - 1).copied();
+            let right_char = line.get(col as usize).copied();
+
+            if let (Some(left), Some(right)) = (left_char, right_char) {
+                if utils::pair(left, right) {
+                    editor.file.delete_char(row as usize, col as usize);
+                }
+            }
+
+            editor.file.delete_char(row as usize, (col - 1) as usize);
+            execute!(stdout(), MoveLeft(1)).unwrap();
+            return;
+        }
+
+        // Otherwise, join the previous line with the next line (inverse operation of enter)
+        let mut prev_line = editor
+            .file
+            .get_line(row as usize - 1)
+            .expect("Failed to get prev_line")
+            .clone();
+        let prev_line_len = prev_line.len();
+        prev_line.extend(line);
+        editor.file.set_line(row as usize - 1, prev_line);
+
+        execute!(stdout(), MoveUp(1)).unwrap();
+
+        // Move the cursor to end of line if previous line isn't empty
+        if prev_line_len > 0 {
+            execute!(stdout(), MoveRight(prev_line_len as u16)).unwrap();
+        }
+
+        // Delete current line and move cursor up
+        editor.file.delete_line(row as usize);
     }
 
-    fn process_char(&mut self, editor: &mut Editor, col: u16, row: u16, c: char) {
+    fn process_char(&mut self, editor: &mut Editor, mut col: u16, row: u16, c: char) {
+        // If user types a closing literal that is preceeded by it's corresponding opening literal,
+        // just move the cursor right
+        if col != 0 {
+            let line = editor.file.get_line(row as usize).expect("Buffer has no starting line");
+            let right_char = line.get(col as usize).copied();
+            
+            if let Some(right) = right_char {
+                if right == c && utils::openeable(c).is_some() {
+                    execute!(stdout(), MoveRight(1)).unwrap();
+                    return;
+                }
+            }
+        }
+
+        // Otherwise, insert whatever the user types
         editor.file.insert_char(row as usize, col as usize, c);
+        col += 1;
         execute!(stdout(), MoveRight(1)).unwrap();
 
-        if let Some(closing_brace) = utils::closing_brace(c) {
-            editor.file.insert_char(row as usize, col as usize + 1, closing_brace);
+        // If inserted char is a literal that is part of a pair, insert it's corresponding partner also
+        if let Some(closing) = utils::closeable(c) {
+            editor.file.insert_char(row as usize, col as usize, closing);
+            return;
         }
     }
 }

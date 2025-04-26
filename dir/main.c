@@ -1,10 +1,6 @@
 #include <stdio.h>
 
-int main() {
+int main(void) {
     printf("Hello, World");
     return 0;
-}
-
-void foo(x, y) {
-    return x + y;
 }
