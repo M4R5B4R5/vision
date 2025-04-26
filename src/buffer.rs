@@ -2,9 +2,9 @@ use std::{
     error::Error, fs::{self, File}, hint, io::{stdout, BufRead, BufReader, Write}, str::FromStr
 };
 
-use crossterm::{cursor::position, terminal::size};
+use crossterm::{cursor::{position, MoveRight}, execute, terminal::size};
 
-use crate::utils;
+use crate::{utils, Action, History, Redo, Undo};
 
 #[derive(Clone)]
 enum Edit {
@@ -15,48 +15,6 @@ enum Edit {
     DeleteLine  {row: usize, deleted: Vec<char>},
 }
 
-#[derive(Clone, Copy)]
-pub enum Action {
-    Do,
-    Undo,
-    Redo,
-}
-
-struct History {
-    edits: Vec<Edit>,
-    undos: Vec<Edit>
-}
-
-impl History {
-    fn new() -> Self {
-        Self { edits: vec![], undos: vec![]}
-    }
-
-    fn update(&mut self, edit: Edit, action: Action) {
-        match action {
-            Action::Do => self.edits.push(edit),
-            Action::Undo => {
-                if let Some(prev_edit) = self.edits.pop() {
-                    self.undos.push(prev_edit);
-                }
-            },
-            Action::Redo => {
-                if let Some(prev_undo) = self.undos.pop() {
-                    self.edits.push(prev_undo);
-                }
-            },
-        } 
-    }
-
-    fn last_from(&self, action: Action) -> Option<Edit> {
-        match action {
-            Action::Do | Action::Redo => self.undos.last().cloned(),
-            Action::Undo => self.edits.last().cloned(),
-        }
-    }
-}
-
-
 pub struct Buffer {
     pub path: Option<String>,
     pub modified: bool,
@@ -64,7 +22,7 @@ pub struct Buffer {
     data: Vec<Vec<char>>,
     pub start: usize,
 
-    history: History,
+    history: History<Edit>,
 }
 
 impl FromStr for Buffer {
@@ -97,6 +55,34 @@ impl Default for Buffer {
             path: None,
             data: vec![vec![]],
             history: History::new(),
+        }
+    }
+}
+
+impl Undo for Buffer {
+    fn undo(&mut self) {
+        if let Some(edit) = self.history.last_from(Action::Undo) {
+            match edit {
+                Edit::InsertChar { row, col, c: _ }                      => self.delete_char(row, col, Action::Undo),
+                Edit::DeleteChar { row, col, deleted }             => self.insert_char(row, col,deleted, Action::Undo),
+                Edit::SetLine    { row, old_line, new_line: _ }      => self.set_line(row, old_line, Action::Undo),
+                Edit::InsertLine { row, line: _ }                               => self.delete_line(row, Action::Undo),
+                Edit::DeleteLine { row, deleted }                    => self.insert_line(row, deleted, Action::Undo),
+            }
+        }
+    }
+}
+
+impl Redo for Buffer {
+    fn redo(&mut self) {
+        if let Some(edit) = self.history.last_from(Action::Redo) {
+            match edit {
+                Edit::InsertChar { row, col, c }                  => self.insert_char(row, col, c, Action::Redo),
+                Edit::DeleteChar { row, col, deleted: _ }               => self.delete_char(row, col, Action::Redo),
+                Edit::SetLine    { row, old_line: _, new_line }     => self.set_line(row, new_line, Action::Redo),
+                Edit::InsertLine { row, line }                      => self.insert_line(row, line, Action::Redo),
+                Edit::DeleteLine { row, deleted: _ }                           => self.delete_line(row, Action::Redo),
+            }
         }
     }
 }
@@ -248,30 +234,6 @@ impl Buffer {
             self.history.update(Edit::DeleteLine { row: row + self.start, deleted: deleted.clone()}, action);
             self.data.remove(row + self.start);
             self.modified = true;
-        }
-    }
-
-    pub fn undo(&mut self) {
-        if let Some(edit) = self.history.last_from(Action::Undo) {
-            match edit {
-                Edit::InsertChar { row, col, c: _ }                      => self.delete_char(row, col, Action::Undo),
-                Edit::DeleteChar { row, col, deleted }             => self.insert_char(row, col,deleted, Action::Undo),
-                Edit::SetLine    { row, old_line, new_line: _ }      => self.set_line(row, old_line, Action::Undo),
-                Edit::InsertLine { row, line: _ }                               => self.delete_line(row, Action::Undo),
-                Edit::DeleteLine { row, deleted }                    => self.insert_line(row, deleted, Action::Undo),
-            }
-        }
-    }
-
-    pub fn redo(&mut self) {
-        if let Some(edit) = self.history.last_from(Action::Redo) {
-            match edit {
-                Edit::InsertChar { row, col, c }                  => self.insert_char(row, col, c, Action::Redo),
-                Edit::DeleteChar { row, col, deleted: _ }               => self.delete_char(row, col, Action::Redo),
-                Edit::SetLine    { row, old_line: _, new_line }     => self.set_line(row, new_line, Action::Redo),
-                Edit::InsertLine { row, line }                      => self.insert_line(row, line, Action::Redo),
-                Edit::DeleteLine { row, deleted: _ }                           => self.delete_line(row, Action::Redo),
-            }
         }
     }
 }

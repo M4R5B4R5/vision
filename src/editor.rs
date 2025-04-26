@@ -1,8 +1,5 @@
 use std::{
-    cmp::{self, max},
-    io::{Write, stdout},
-    path::{self, Path},
-    process::exit,
+    cmp::{self, max}, collections::VecDeque, io::{stdout, Write}, path::{self, Path}, process::exit
 };
 
 use crossterm::{
@@ -16,7 +13,7 @@ use crossterm::{
 };
 use crossterm::style::Color;
 
-use crate::{print_fg, print_bg, utils, Buffer, Command, mode::*};
+use crate::{mode::*, print_bg, print_fg, utils, Buffer, Command, Cursor, CursorPosition, History, Redo, Undo};
 use cmp::min;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,9 +37,24 @@ impl Direction {
 
 pub struct Editor {
     pub file: Buffer,
+    pub cursor: Cursor,
     pub mode: Mode,
 
     prev_cursor_col: Option<u16>,
+}
+
+impl Undo for Editor {
+    fn undo(&mut self) {
+        self.file.undo();
+        self.cursor.undo();
+    }
+}
+
+impl Redo for Editor {
+    fn redo(&mut self) {
+        self.file.redo();
+        self.cursor.redo();
+    }
 }
 
 impl Editor {
@@ -58,6 +70,7 @@ impl Editor {
         print!("\x1b[3J");
         Self {
             file,
+            cursor: Cursor::new(History::<CursorPosition>::new()),
             mode: Mode::Normal,
             prev_cursor_col: None,
         }

@@ -2,7 +2,7 @@ use std::{io::{stdout, Write}, thread, time::Duration};
 
 use crossterm::{cursor::{position, MoveDown, MoveLeft, MoveRight, MoveTo, MoveToNextLine, MoveToPreviousLine, MoveUp}, event::{read, Event, KeyCode, KeyModifiers}, execute, style::Color, terminal::{enable_raw_mode, Clear, ClearType}};
 
-use crate::{print_bg, print_fg, utils, Action, Command, Direction, Editor};
+use crate::{print_bg, print_fg, utils, Action, Command, Cursor, CursorPosition, Direction, Editor, Redo, Undo};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -62,13 +62,13 @@ impl ModeBehaviour for NormalMode {
 
                         // Shortcuts comming soon
                         KeyCode::Char('u') => {
-                            editor.file.undo();
+                            editor.undo();
                             editor.render();
                         },
 
                         KeyCode::Char('r') => {
                             if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                                editor.file.redo();
+                                editor.redo();
                                 editor.render();
                             }
                         },
@@ -218,7 +218,7 @@ impl InsertMode {
         editor.file.delete_line(row as usize, Action::Do);
     }
 
-    fn process_char(&mut self, editor: &mut Editor, mut col: u16, row: u16, c: char) {
+    fn process_char(&mut self, editor: &mut Editor, col: u16, row: u16, c: char) {
         // If user types a closing literal that is preceeded by it's corresponding opening literal,
         // just move the cursor right
         if col != 0 {
@@ -228,6 +228,7 @@ impl InsertMode {
             if let Some(right) = right_char {
                 if right == c && utils::openeable(c).is_some() {
                     execute!(stdout(), MoveRight(1)).unwrap();
+                    editor.cursor.history.update(CursorPosition::new((col, row), Cursor::pos()), Action::Do);
                     return;
                 }
             }
@@ -235,14 +236,16 @@ impl InsertMode {
 
         // Otherwise, insert whatever the user types
         editor.file.insert_char(row as usize, col as usize, c, Action::Do);
-        col += 1;
+        
         execute!(stdout(), MoveRight(1)).unwrap();
-
+        
         // If inserted char is a literal that is part of a pair, insert it's corresponding partner also
         if let Some(closing) = utils::closeable(c) {
-            editor.file.insert_char(row as usize, col as usize, closing, Action::Do);
-            return;
+            editor.file.insert_char(row as usize, col as usize + 1, closing, Action::Do);
         }
+
+        // Update the cursor's history
+        editor.cursor.history.update(CursorPosition::new((col, row), Cursor::pos()), Action::Do);
     }
 }
 
