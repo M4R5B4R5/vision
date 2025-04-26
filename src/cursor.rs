@@ -29,14 +29,6 @@ impl Cursor {
         position().unwrap()
     }
 
-    pub fn row() -> u16 {
-        position().unwrap().1
-    }
-
-    pub fn col() -> u16 {
-        position().unwrap().0
-    }
-
     pub fn move_to(pos: (u16, u16)) {
         execute!(stdout(), MoveTo(pos.0, pos.1)).unwrap();
     }

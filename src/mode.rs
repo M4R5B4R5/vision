@@ -122,13 +122,13 @@ impl InsertMode {
     fn process_tab(&mut self, editor: &mut Editor, col: u16, row: u16) {
         for i in 0..4 {
             if (position().unwrap().0) % 4 == 0 && i != 0 {
-                return;
+                break;
             }
             self.process_char(editor, col, row, ' ');
         }
     }
 
-    fn process_enter(&mut self, editor: &mut Editor, col: u16, mut row: u16) {
+    fn process_enter(&mut self, editor: &mut Editor, col: u16, row: u16) {
         let line = editor.file.get_line(row as usize).expect("Failed to get line");
 
         let first_half = (&line[0..col as usize]).to_vec();
@@ -147,7 +147,7 @@ impl InsertMode {
         // Replace the current line with everything left of the cursor
         editor.file.set_line(row as usize, first_half.clone(), Action::Do);
         execute!(stdout(), MoveToNextLine(1)).unwrap();
-        row += 1;
+        let mut new_row = row + 1;
         
         // // Insert another new line if user presses enter betweeen braces
         let left_char = first_half.last().copied();
@@ -157,9 +157,9 @@ impl InsertMode {
             if utils::braces(left, right) {
                 let mut new_line = indentation.clone();
                 new_line.extend(vec![' ', ' ', ' ', ' ']);
-                editor.file.insert_line(row as usize, new_line, Action::Do);
+                editor.file.insert_line(new_row as usize, new_line, Action::Do);
                 execute!(stdout(), MoveRight(4)).unwrap();
-                row += 1;
+                new_row += 1;
             }
         }
 
@@ -167,11 +167,13 @@ impl InsertMode {
         second_half.splice(0..0, indentation.clone());
 
         // Insert second half
-        editor.file.insert_line(row as usize, second_half, Action::Do);
+        editor.file.insert_line(new_row as usize, second_half, Action::Do);
 
         if indentation.len() > 0 {
             execute!(stdout(), MoveRight(indentation.len() as u16)).unwrap();
         }
+
+        editor.cursor.history.update(CursorPosition::new((col, row), Cursor::pos()), Action::Do);
     }
 
     fn process_backspace(&mut self, editor: &mut Editor, col: u16, row: u16) {
@@ -194,6 +196,7 @@ impl InsertMode {
 
             editor.file.delete_char(row as usize, (col - 1) as usize, Action::Do);
             execute!(stdout(), MoveLeft(1)).unwrap();
+            editor.cursor.history.update(CursorPosition::new((col, row), Cursor::pos()), Action::Do);
             return;
         }
 
@@ -206,16 +209,17 @@ impl InsertMode {
         let prev_line_len = prev_line.len();
         prev_line.extend(line);
         editor.file.set_line(row as usize - 1, prev_line, Action::Do);
-
+        
         execute!(stdout(), MoveUp(1)).unwrap();
-
+        
         // Move the cursor to end of line if previous line isn't empty
         if prev_line_len > 0 {
             execute!(stdout(), MoveRight(prev_line_len as u16)).unwrap();
         }
-
+        
         // Delete current line and move cursor up
         editor.file.delete_line(row as usize, Action::Do);
+        editor.cursor.history.update(CursorPosition::new((col, row), Cursor::pos()), Action::Do);
     }
 
     fn process_char(&mut self, editor: &mut Editor, col: u16, row: u16, c: char) {
